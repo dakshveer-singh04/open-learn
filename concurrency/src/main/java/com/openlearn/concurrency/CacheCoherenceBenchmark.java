@@ -7,7 +7,7 @@ package com.openlearn.concurrency;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 
@@ -15,13 +15,13 @@ public class CacheCoherenceBenchmark {
 
   private static final int NUM_THREADS = 4;
   private static final int NUM_ITERATIONS = 10_00_000;
-  private static final AtomicInteger atomicCounter = new AtomicInteger(0);
+  private static final AtomicLong atomicCounter = new AtomicLong(0);
   private static final LongAdder longAdder = new LongAdder();
 
   public static void main(String[] args) throws InterruptedException {
-    benchmark_action("AtomicInteger", false, atomicCounter::incrementAndGet, atomicCounter::get);
+    benchmark_action("AtomicLong", false, atomicCounter::incrementAndGet, atomicCounter::get);
     atomicCounter.set(0);
-    benchmark_action("AtomicInteger", true, atomicCounter::incrementAndGet, atomicCounter::get);
+    benchmark_action("AtomicLong", true, atomicCounter::incrementAndGet, atomicCounter::get);
 
     benchmark_action("LongAdder", false, longAdder::increment, longAdder::longValue);
     longAdder.reset();
@@ -39,26 +39,13 @@ public class CacheCoherenceBenchmark {
     if (sameCore) {
       try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
         for (int i = 0; i < NUM_THREADS; i++) {
-          executor.submit(
-              () -> {
-                for (int j = 0; j < NUM_ITERATIONS; j++) {
-                  action.run();
-                }
-                latch.countDown();
-              });
+          executor.submit(getRunnable(action, latch));
         }
         executor.shutdown();
       }
     } else {
       for (int i = 0; i < NUM_THREADS; i++) {
-        new Thread(
-                () -> {
-                  for (int j = 0; j < NUM_ITERATIONS; j++) {
-                    action.run();
-                  }
-                  latch.countDown();
-                })
-            .start();
+        new Thread(getRunnable(action, latch)).start();
       }
     }
     latch.await();
@@ -66,5 +53,14 @@ public class CacheCoherenceBenchmark {
 
     System.out.println(
         "Time taken: " + (endTime - startTime) + "ns  to count : " + getValue.get() + "\n");
+  }
+
+  private static Runnable getRunnable(Runnable action, CountDownLatch latch) {
+    return () -> {
+      for (int j = 0; j < NUM_ITERATIONS; j++) {
+        action.run();
+      }
+      latch.countDown();
+    };
   }
 }
